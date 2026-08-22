@@ -21,6 +21,8 @@ await app.register(cookie);
 await app.register(cors, { origin: process.env.ALLOWED_ORIGIN ?? false, credentials: true });
 await app.register(fastifyStatic, { root: join(process.cwd(), "public"), index: "index.html" });
 
+app.get("/", async (_request, reply) => reply.type("text/html").sendFile("index.html"));
+
 const sessionId = (request: { cookies: Record<string, string | undefined> }) => request.cookies[cookieName];
 const requireSession = (request: { cookies: Record<string, string | undefined> }, reply: { code: (status: number) => { send: (body: unknown) => unknown } }) => {
   const id = sessionId(request);
