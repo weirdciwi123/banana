@@ -136,7 +136,7 @@ app.post<{ Params: { diaryId: string } }>("/diaries/:diaryId/feedback:generate",
   try { const feedback = await workflow.createFeedback(goal, diary); store.saveFeedback(feedback); return reply.code(201).send({ data: feedback }); } catch (error) { if (error instanceof Error && error.message === "POLICY_BLOCKED") return reply.code(422).send({ code: "POLICY_BLOCKED", message: "정책 검증을 통과하지 못했습니다." }); throw error; }
 });
 
-app.post<{ Params: { diaryId: string } }>("/diaries/:diaryId/next-day-plan:adjust", async (request, reply) => {
+app.post<{ Params: { diaryId: string } }>("/diaries/:diaryId/next-day-plan-preview", async (request, reply) => {
   const id = requireSession(request, reply);
   if (!id) return;
 
@@ -173,7 +173,7 @@ app.post<{ Params: { diaryId: string } }>("/diaries/:diaryId/next-day-plan:adjus
   }
 });
 
-app.post<{ Params: { diaryId: string }; Body: unknown }>("/diaries/:diaryId/next-day-plan:apply", async (request, reply) => {
+app.post<{ Params: { diaryId: string }; Body: unknown }>("/diaries/:diaryId/next-day-plan-apply", async (request, reply) => {
   const id = requireSession(request, reply);
   if (!id) return;
 

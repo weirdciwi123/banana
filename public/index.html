@@ -609,7 +609,7 @@
       await sessionReady;
       if (!state.diaryId) throw new Error("먼저 일기를 저장해 주세요.");
       if (!state.planId) throw new Error("먼저 계획을 생성해 주세요.");
-      const preview = await api(`/diaries/${state.diaryId}/next-day-plan:adjust`, { method: "POST", body: "{}" });
+      const preview = await api(`/diaries/${state.diaryId}/next-day-plan-preview`, { method: "POST", body: "{}" });
       state.pendingNextDayAdjustment = {
         adjustedDayIndex: preview.data.adjustedDayIndex,
         previousTask: preview.data.previousTask,
@@ -624,7 +624,7 @@
       await sessionReady;
       if (!state.diaryId) throw new Error("먼저 일기를 저장해 주세요.");
       if (!state.pendingNextDayAdjustment) throw new Error("먼저 다음날 계획 조정을 미리보기 해주세요.");
-      const result = await api(`/diaries/${state.diaryId}/next-day-plan:apply`, {
+      const result = await api(`/diaries/${state.diaryId}/next-day-plan-apply`, {
         method: "POST",
         body: JSON.stringify({
           adjustedDayIndex: state.pendingNextDayAdjustment.adjustedDayIndex,

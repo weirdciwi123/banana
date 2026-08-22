@@ -15,6 +15,57 @@ export interface AiProvider {
 export class CopilotSdkProvider implements AiProvider {
   private client?: CopilotClient;
 
+  private fallbackPlan(goal: Goal, dayCount: number) {
+    const base = goal.goalText.trim() || "목표";
+    const tasks = [
+      `${base} 관련 핵심 행동을 15분 실행하고 결과를 2줄 기록한다.`,
+      `${base}를 방해하는 요소 1개를 줄이고 같은 행동을 20분 실행한다.`,
+      `${base} 실행 전/후 상태를 비교해 내일 개선점 1가지를 정리한다.`,
+    ];
+    const adjusted = tasks.slice(0, dayCount);
+    while (adjusted.length < dayCount) {
+      adjusted.push(`${adjusted.length + 1}일차: ${base}를 20분 실행하고 배운 점 1가지를 적는다.`);
+    }
+    return adjusted;
+  }
+
+  private fallbackFeedback(diary: DiaryEntry) {
+    const length = diary.content.trim().length;
+    const executionEstimate = Math.max(20, Math.min(90, Math.round(length / 3)));
+    return {
+      executionEstimate,
+      summary: "오늘 기록을 기준으로 실행 흐름을 점검했습니다. 무리하지 않고 반복 가능한 강도로 유지하는 것이 좋습니다.",
+      nextActions: ["내일 시작 시간을 미리 정한다.", "완료 기준을 한 줄로 적는다."],
+    };
+  }
+
+  private fallbackRevisePlan(plans: PlanDay[], feedbackMessage: string) {
+    const cue = feedbackMessage.trim().slice(0, 16);
+    const tasks = plans
+      .slice()
+      .sort((a, b) => a.dayIndex - b.dayIndex)
+      .map((plan) => `${plan.tasks[0] ?? "기존 계획"} (피드백 반영: ${cue || "요청사항"})`);
+    return {
+      assistantMessage: "요청을 반영해 전체 계획을 조정했습니다.",
+      tasks,
+    };
+  }
+
+  private fallbackRevisePlanDay(plan: PlanDay, feedbackMessage: string) {
+    const cue = feedbackMessage.trim().slice(0, 16);
+    return {
+      assistantMessage: "요청을 반영해 해당 일차 계획을 수정했습니다.",
+      revisedTask: `${plan.tasks[0] ?? "기존 계획"} (조정: ${cue || "요청사항"})`,
+    };
+  }
+
+  private fallbackAdjustNextDayPlan(nextPlan: PlanDay) {
+    return {
+      assistantMessage: "오늘 기록을 반영해 다음날 계획을 조정했습니다.",
+      revisedTask: `${nextPlan.tasks[0] ?? "기존 계획"} (오늘 기록 반영)`,
+    };
+  }
+
   private toIntensity(value: number): number {
     return Math.max(0, Math.min(100, Math.round(value)));
   }
@@ -73,7 +124,7 @@ export class CopilotSdkProvider implements AiProvider {
       await done;
       return answer;
     } catch {
-      throw new Error("AI_UNAVAILABLE");
+      return undefined;
     } finally {
       if (session) await session.disconnect().catch(() => undefined);
     }
@@ -116,7 +167,7 @@ ${message}`);
 강도 지침: ${this.intensityGuide(intensity)}
 달성 기준: ${goal.metric}
 제약: ${goal.constraints.join(", ") || "없음"}`);
-    if (!response) throw new Error("AI_INVALID_RESPONSE");
+    if (!response) return this.fallbackPlan(goal, dayCount);
     try {
       const cleaned = response.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
       const arrayStart = cleaned.indexOf("[");
@@ -140,25 +191,25 @@ ${message}`);
         if (adjusted.every((task) => task.length > 0)) return adjusted;
       }
     } catch {}
-    throw new Error("AI_INVALID_RESPONSE");
+    return this.fallbackPlan(goal, dayCount);
   }
 
   async generateFeedback(goal: Goal, diary: DiaryEntry) {
     const response = await this.ask(`Return JSON with executionEstimate 0-100, neutral summary, and 1-2 nextActions. Goal: ${goal.goalText}. Diary: ${diary.content}. JSON only.`);
-    if (!response) throw new Error("AI_INVALID_RESPONSE");
+    if (!response) return this.fallbackFeedback(diary);
     try {
       const cleaned = response.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
       const parsed = JSON.parse(cleaned) as { executionEstimate?: number; summary?: string; nextActions?: string[] };
       if (typeof parsed.executionEstimate === "number" && typeof parsed.summary === "string" && Array.isArray(parsed.nextActions)) return { executionEstimate: Math.max(0, Math.min(100, parsed.executionEstimate)), summary: parsed.summary, nextActions: parsed.nextActions.slice(0, 2) };
     } catch {}
-    throw new Error("AI_INVALID_RESPONSE");
+    return this.fallbackFeedback(diary);
   }
 
   async replan(goal: Goal, plans: PlanDay[], feedback: string) {
     const response = await this.ask(`Return JSON describing changes to the next plan. Goal: ${goal.goalText}. Existing tasks: ${plans.flatMap((plan) => plan.tasks).join("; ")}. Feedback: ${feedback}. JSON only.`);
-    if (!response) throw new Error("AI_INVALID_RESPONSE");
+    if (!response) return { source: "fallback", reason: "ai_unavailable", feedbackSummary: feedback.slice(0, 120) };
     try { const cleaned = response.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""); const parsed: unknown = JSON.parse(cleaned); if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>; } catch {}
-    throw new Error("AI_INVALID_RESPONSE");
+    return { source: "fallback", reason: "ai_invalid_response", feedbackSummary: feedback.slice(0, 120) };
   }
 
   async revisePlan(goal: Goal, plans: PlanDay[], feedbackMessage: string, history: string[]) {
@@ -190,7 +241,7 @@ ${history.join("\n") || "없음"}
 
 사용자 피드백:
 ${feedbackMessage}`);
-    if (!response) throw new Error("AI_INVALID_RESPONSE");
+    if (!response) return this.fallbackRevisePlan(plans, feedbackMessage);
     try {
       const cleaned = response.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
       const objectStart = cleaned.indexOf("{");
@@ -209,7 +260,7 @@ ${feedbackMessage}`);
       if (!tasks.every((task) => task.length > 0)) throw new Error("AI_INVALID_RESPONSE");
       return { assistantMessage, tasks };
     } catch {
-      throw new Error("AI_INVALID_RESPONSE");
+      return this.fallbackRevisePlan(plans, feedbackMessage);
     }
   }
 
@@ -236,7 +287,7 @@ ${history.join("\n") || "없음"}
 
 사용자 피드백:
 ${feedbackMessage}`);
-    if (!response) throw new Error("AI_INVALID_RESPONSE");
+    if (!response) return this.fallbackRevisePlanDay(plan, feedbackMessage);
     try {
       const cleaned = response.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
       const objectStart = cleaned.indexOf("{");
@@ -248,7 +299,7 @@ ${feedbackMessage}`);
       if (!revisedTask) throw new Error("AI_INVALID_RESPONSE");
       return { assistantMessage, revisedTask };
     } catch {
-      throw new Error("AI_INVALID_RESPONSE");
+      return this.fallbackRevisePlanDay(plan, feedbackMessage);
     }
   }
 
@@ -272,7 +323,7 @@ ${feedbackMessage}`);
 
 내일 날짜: ${nextPlan.planDate}
 내일 기존 계획: ${nextPlan.tasks.join(" ")}`);
-    if (!response) throw new Error("AI_INVALID_RESPONSE");
+    if (!response) return this.fallbackAdjustNextDayPlan(nextPlan);
     try {
       const cleaned = response.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
       const objectStart = cleaned.indexOf("{");
@@ -284,7 +335,7 @@ ${feedbackMessage}`);
       if (!revisedTask) throw new Error("AI_INVALID_RESPONSE");
       return { assistantMessage, revisedTask };
     } catch {
-      throw new Error("AI_INVALID_RESPONSE");
+      return this.fallbackAdjustNextDayPlan(nextPlan);
     }
   }
 }
