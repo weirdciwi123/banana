@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: kiwikiwi
+metadata:
+    template: azd-init@1.31.2
+services:
+    kiwikiwi:
+        project: .
+        host: containerapp
+        language: js
+        docker:
+            path: Dockerfile
+resources:
+    kiwikiwi:
+        type: host.containerapp
+        port: 3000

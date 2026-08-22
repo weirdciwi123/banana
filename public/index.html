@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>성찰 플래너</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f5f6f8; color: #20252b; }
+    main { width: min(960px, calc(100% - 32px)); margin: 32px auto; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    h1, h2 { margin: 0 0 8px; }
+    h1 { font-size: 28px; }
+    h2 { font-size: 18px; }
+    p { margin: 0 0 16px; color: #65707c; }
+    section { background: #fff; border: 1px solid #e1e5e9; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+    label { display: block; font-weight: 600; margin: 14px 0 6px; }
+    input, textarea, select { width: 100%; border: 1px solid #cbd2d9; border-radius: 6px; padding: 10px; font: inherit; }
+    textarea { min-height: 96px; resize: vertical; }
+    button { border: 0; border-radius: 6px; padding: 10px 14px; background: #2463eb; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+    button.secondary { background: #e9edf2; color: #28313b; }
+    button:disabled { opacity: .55; cursor: wait; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    .result { margin-top: 16px; padding: 12px; background: #f6f8fa; border-radius: 6px; white-space: pre-wrap; }
+    .calendar-wrap { margin-top: 16px; border: 1px solid #d9e1e8; border-radius: 10px; overflow: hidden; background: #fff; }
+    .calendar-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: #f8fbff;
+      border-bottom: 1px solid #d9e1e8;
+    }
+    .calendar-month-label { font-size: 16px; font-weight: 700; color: #20314d; }
+    .calendar-nav { display: flex; gap: 8px; }
+    .calendar-nav button { padding: 6px 10px; font-size: 13px; }
+    .calendar-weekday-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-bottom: 1px solid #eef2f6; }
+    .calendar-weekday { padding: 8px 6px; text-align: center; font-size: 12px; font-weight: 700; color: #5b6673; background: #fcfdff; }
+    .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+    .calendar-cell {
+      min-height: 110px;
+      border-right: 1px solid #eef2f6;
+      border-bottom: 1px solid #eef2f6;
+      padding: 8px;
+      background: #fff;
+      text-align: left;
+      cursor: default;
+    }
+    .calendar-cell:nth-child(7n) { border-right: 0; }
+    .calendar-cell.empty { background: #fafbfd; }
+    .calendar-cell.has-plan { cursor: pointer; transition: background .15s ease, box-shadow .15s ease; }
+    .calendar-cell.has-plan:hover { background: #f3f8ff; box-shadow: inset 0 0 0 1px #bfd4ff; }
+    .calendar-cell.selected { background: #eaf2ff; box-shadow: inset 0 0 0 2px #2f6bff; }
+    .calendar-day-number { font-size: 12px; font-weight: 700; color: #5c6773; margin-bottom: 6px; }
+    .calendar-cell.has-plan .calendar-day-number { color: #1d4ed8; }
+    .calendar-task-snippet {
+      font-size: 13px;
+      line-height: 1.4;
+      color: #1f2a37;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .calendar-day-badge {
+      display: inline-block;
+      margin-bottom: 6px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #e7efff;
+      color: #1846b7;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .plan-tip { margin-top: 10px; font-size: 13px; color: #556273; }
+    .error { color: #b42318; }
+    .muted { color: #65707c; font-size: 14px; }
+    .subsection-title { margin: 18px 0 8px; font-size: 16px; }
+    .intensity-wrap { margin-top: 8px; }
+    .intensity-track {
+      position: relative;
+      width: 100%;
+      height: 30px;
+      border: 1px solid #cbd2d9;
+      border-radius: 8px;
+      background:
+        linear-gradient(to right, #d9e6ff 0%, #7ea7ff 50%, #2f6bff 100%),
+        repeating-linear-gradient(to right, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0) calc(1% - 1px), rgba(255, 255, 255, 0.35) calc(1% - 1px), rgba(255, 255, 255, 0.35) 1%);
+      background-blend-mode: multiply;
+      cursor: pointer;
+      touch-action: none;
+      user-select: none;
+    }
+    .intensity-thumb {
+      position: absolute;
+      top: 50%;
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      border: 2px solid #0f172a;
+      background: #ffffff;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+    }
+    .intensity-meta { display: flex; justify-content: space-between; margin-top: 6px; font-size: 13px; color: #4a5561; }
+    @media (max-width: 640px) { main { width: min(100% - 20px, 960px); margin: 20px auto; } .grid { grid-template-columns: 1fr; } header { align-items: flex-start; gap: 12px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div><h1>성찰 플래너</h1><p>계정 없이 목표를 계획하고 기록하세요.</p></div>
+      <button id="new-session" class="secondary">새 세션</button>
+    </header>
+
+    <section>
+      <h2>목표와 계획</h2>
+      <form id="goal-form">
+        <label for="goalText">목표</label>
+        <input id="goalText" required maxlength="2000" placeholder="예: 매일 책 읽기">
+        <div class="grid">
+          <div><label for="currentState">현재 상태</label><textarea id="currentState" required placeholder="현재 하고 있는 정도를 적어주세요."></textarea></div>
+          <div><label for="metric">달성 확인 기준</label><textarea id="metric" required placeholder="목표를 달성했는지 어떻게 확인할까요? 예: 주 5회, 하루 20분"></textarea></div>
+        </div>
+        <div class="grid">
+          <div><label for="startDate">시작일</label><input id="startDate" type="date" required></div>
+          <div><label for="duration">기간</label><input id="duration" required maxlength="100" value="7일" placeholder="예: 10일, 2주, 30일"></div>
+          <div><label for="constraints">지키기 어려운 조건이나 제한</label><input id="constraints" placeholder="계획을 세울 때 고려할 조건을 적어주세요. 예: 평일 저녁 20분"></div>
+        </div>
+        <label for="intensity-track">계획 강도</label>
+        <div class="intensity-wrap">
+          <div id="intensity-track" class="intensity-track" role="slider" tabindex="0" aria-label="계획 강도" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="50%">
+            <div id="intensity-thumb" class="intensity-thumb"></div>
+          </div>
+          <div class="intensity-meta"><span>0%</span><strong id="intensity-label">50%</strong><span>100%</span></div>
+          <input id="intensity" type="hidden" value="50">
+        </div>
+        <div class="actions"><button type="submit">계획 생성</button></div>
+      </form>
+      <div id="plan-result" class="result muted">아직 생성된 계획이 없습니다.</div>
+      <div id="replan-actions" class="actions" hidden>
+        <button id="accept-plan" type="button">조정안 수용</button>
+        <button id="reject-plan" type="button" class="secondary">기존 계획 유지</button>
+      </div>
+      <p id="plan-click-tip" class="plan-tip" hidden>달력에서 계획이 있는 날짜를 누르면 해당 날짜(일차) 전용 피드백/수정 패널이 열립니다.</p>
+      <div id="plan-chat-section" hidden>
+        <h3 id="plan-chat-title" class="subsection-title">일차 선택 필요</h3>
+        <p class="muted">선택한 일차에 대해서만 AI 피드백 반영 또는 직접 수정을 할 수 있습니다.</p>
+        <div id="plan-chat-log" class="result muted">아직 계획 피드백 대화가 없습니다.</div>
+        <form id="plan-chat-form">
+          <label for="planChatMessage">수정 요청</label>
+          <textarea id="planChatMessage" maxlength="3000" required placeholder="예: 평일은 20분만 가능하니 1~5일차 난이도를 낮춰줘."></textarea>
+          <div class="actions"><button type="submit">피드백 반영하기</button></div>
+        </form>
+        <form id="plan-direct-edit-form">
+          <label for="planDirectTask">직접 수정</label>
+          <textarea id="planDirectTask" maxlength="2000" required placeholder="선택한 일차 내용을 직접 수정하세요."></textarea>
+          <div class="actions"><button id="plan-direct-save" type="submit" class="secondary">직접 수정 저장</button></div>
+        </form>
+      </div>
+    </section>
+
+    <section>
+      <h2>오늘의 기록</h2>
+      <form id="diary-form">
+        <label for="diaryDate">날짜</label><input id="diaryDate" type="date" required>
+        <label for="diaryContent">일기</label><textarea id="diaryContent" required placeholder="오늘 실행한 내용과 느낀 점을 적어주세요."></textarea>
+        <div class="actions"><button type="submit">일기 저장</button><button id="feedback-button" type="button" class="secondary" disabled>피드백 받기</button></div>
+      </form>
+      <div id="feedback-result" class="result muted">일기를 저장하면 피드백을 받을 수 있습니다.</div>
+    </section>
+
+    <section>
+      <h2>AI 상담</h2>
+      <p class="muted">현재 상황이나 다음 행동에 대해 물어보세요.</p>
+      <form id="chat-form">
+        <label for="chatMessage">메시지</label><textarea id="chatMessage" required placeholder="예: 계획을 너무 크게 세운 것 같아요."></textarea>
+        <div class="actions"><button type="submit">상담 보내기</button></div>
+      </form>
+      <div id="chat-result" class="result muted">상담 기록이 여기에 표시됩니다.</div>
+    </section>
+
+    <div id="status" class="muted" role="status"></div>
+  </main>
+  <script>
+    const state = {
+      goalId: null,
+      planId: null,
+      diaryId: null,
+      selectedDayIndex: null,
+      currentPlans: [],
+      viewMonth: null,
+    };
+    const $ = (id) => document.getElementById(id);
+    const show = (id, value, error = false) => { $(id).textContent = value; $(id).className = `result${error ? " error" : ""}`; };
+    const escapeHtml = (value) => value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const toIsoDate = (date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
+    const parseIsoDate = (isoDate) => new Date(`${isoDate}T00:00:00`);
+    const toMonthKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const monthToDate = (monthKey) => {
+      const [year, month] = monthKey.split("-").map(Number);
+      return new Date(year, (month || 1) - 1, 1);
+    };
+    const addMonths = (monthKey, diff) => {
+      const date = monthToDate(monthKey);
+      date.setMonth(date.getMonth() + diff);
+      return toMonthKey(date);
+    };
+    const compareMonth = (left, right) => {
+      if (left === right) return 0;
+      return left < right ? -1 : 1;
+    };
+    const monthLabel = (monthKey) => {
+      const date = monthToDate(monthKey);
+      return `${date.getFullYear()}년 ${date.getMonth() + 1}월`;
+    };
+    const setPlanPlaceholder = (message) => {
+      const planResult = $("plan-result");
+      planResult.className = "result muted";
+      planResult.textContent = message;
+      state.currentPlans = [];
+      state.selectedDayIndex = null;
+      state.viewMonth = null;
+    };
+    const planRangeMonths = () => {
+      if (state.currentPlans.length === 0) return { minMonth: null, maxMonth: null };
+      const sorted = state.currentPlans
+        .map((plan) => toMonthKey(parseIsoDate(plan.planDate)))
+        .sort((a, b) => compareMonth(a, b));
+      return { minMonth: sorted[0], maxMonth: sorted[sorted.length - 1] };
+    };
+    const selectedDayPlan = () => state.currentPlans.find((plan) => plan.dayIndex === state.selectedDayIndex);
+    const updateDayPanelHeader = () => {
+      const title = $("plan-chat-title");
+      if (!state.selectedDayIndex) {
+        title.textContent = "날짜 선택 필요";
+        return;
+      }
+      const plan = selectedDayPlan();
+      if (!plan) {
+        title.textContent = `${state.selectedDayIndex}일차 피드백 및 수정`;
+        return;
+      }
+      title.textContent = `${state.selectedDayIndex}일차 (${plan.planDate}) 피드백 및 수정`;
+    };
+    const markSelectedCell = () => {
+      document.querySelectorAll(".calendar-cell.has-plan").forEach((cell) => {
+        const dayIndex = Number(cell.getAttribute("data-day-index"));
+        cell.classList.toggle("selected", dayIndex === state.selectedDayIndex);
+      });
+    };
+    const renderPlanChat = (messages) => {
+      if (!messages || messages.length === 0) return "아직 계획 피드백 대화가 없습니다.";
+      return messages.map((message) => `${message.role === "user" ? "나" : "AI"}: ${message.content}`).join("\n\n");
+    };
+    const openDayPanel = async (dayIndex) => {
+      if (!state.planId) throw new Error("먼저 계획을 생성해 주세요.");
+      state.selectedDayIndex = dayIndex;
+      updateDayPanelHeader();
+      markSelectedCell();
+      $("plan-chat-section").hidden = false;
+      const plan = selectedDayPlan();
+      $("planDirectTask").value = plan ? plan.tasks.join(" ") : "";
+      const messages = await api(`/plans/${state.planId}/days/${dayIndex}/feedback-messages`);
+      show("plan-chat-log", renderPlanChat(messages.data));
+    };
+    const renderPlans = (plans) => {
+      const planResult = $("plan-result");
+      if (!plans || plans.length === 0) return setPlanPlaceholder("아직 생성된 계획이 없습니다.");
+
+      const sortedPlans = plans
+        .slice()
+        .sort((a, b) => {
+          if (a.planDate === b.planDate) return a.dayIndex - b.dayIndex;
+          return a.planDate < b.planDate ? -1 : 1;
+        });
+      state.currentPlans = sortedPlans;
+
+      const { minMonth, maxMonth } = planRangeMonths();
+      if (!state.viewMonth) state.viewMonth = minMonth;
+      if (minMonth && compareMonth(state.viewMonth, minMonth) < 0) state.viewMonth = minMonth;
+      if (maxMonth && compareMonth(state.viewMonth, maxMonth) > 0) state.viewMonth = maxMonth;
+
+      const monthDate = monthToDate(state.viewMonth);
+      const year = monthDate.getFullYear();
+      const month = monthDate.getMonth();
+      const firstDay = new Date(year, month, 1);
+      const totalDays = new Date(year, month + 1, 0).getDate();
+      const leading = firstDay.getDay();
+
+      const plansByDate = new Map(sortedPlans.map((plan) => [plan.planDate, plan]));
+      const weekDays = ["일", "월", "화", "수", "목", "금", "토"];
+
+      const cells = [];
+      for (let index = 0; index < leading; index += 1) {
+        cells.push('<div class="calendar-cell empty" aria-hidden="true"></div>');
+      }
+      for (let day = 1; day <= totalDays; day += 1) {
+        const dateIso = toIsoDate(new Date(year, month, day));
+        const plan = plansByDate.get(dateIso);
+        if (plan) {
+          const snippet = escapeHtml(plan.tasks.join(" "));
+          const selected = plan.dayIndex === state.selectedDayIndex ? " selected" : "";
+          cells.push(`<div class="calendar-cell has-plan${selected}" data-day-index="${plan.dayIndex}" data-plan-date="${plan.planDate}" role="button" tabindex="0"><div class="calendar-day-number">${day}</div><span class="calendar-day-badge">${plan.dayIndex}일차</span><div class="calendar-task-snippet">${snippet}</div></div>`);
+        } else {
+          cells.push(`<div class="calendar-cell"><div class="calendar-day-number">${day}</div></div>`);
+        }
+      }
+      while (cells.length % 7 !== 0) {
+        cells.push('<div class="calendar-cell empty" aria-hidden="true"></div>');
+      }
+
+      const prevDisabled = !minMonth || compareMonth(state.viewMonth, minMonth) <= 0;
+      const nextDisabled = !maxMonth || compareMonth(state.viewMonth, maxMonth) >= 0;
+
+      planResult.className = "calendar-wrap";
+      planResult.innerHTML = `
+        <div class="calendar-toolbar">
+          <div class="calendar-month-label">${monthLabel(state.viewMonth)}</div>
+          <div class="calendar-nav">
+            <button type="button" data-month-nav="prev" ${prevDisabled ? "disabled" : ""}>이전 달</button>
+            <button type="button" data-month-nav="next" ${nextDisabled ? "disabled" : ""}>다음 달</button>
+          </div>
+        </div>
+        <div class="calendar-weekday-row">${weekDays.map((day) => `<div class="calendar-weekday">${day}</div>`).join("")}</div>
+        <div class="calendar-grid">${cells.join("")}</div>
+      `;
+
+      if (state.selectedDayIndex && !sortedPlans.some((plan) => plan.dayIndex === state.selectedDayIndex)) {
+        state.selectedDayIndex = null;
+      }
+      markSelectedCell();
+      updateDayPanelHeader();
+    };
+
+    const intensityTrack = $("intensity-track");
+    const intensityThumb = $("intensity-thumb");
+    const intensityInput = $("intensity");
+    const intensityLabel = $("intensity-label");
+    const setIntensity = (value) => {
+      const next = clamp(Math.round(value), 0, 100);
+      intensityInput.value = String(next);
+      intensityLabel.textContent = `${next}%`;
+      intensityThumb.style.left = `${next}%`;
+      intensityTrack.setAttribute("aria-valuenow", String(next));
+      intensityTrack.setAttribute("aria-valuetext", `${next}%`);
+    };
+    const positionToIntensity = (clientX) => {
+      const rect = intensityTrack.getBoundingClientRect();
+      const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
+      return ratio * 100;
+    };
+    setIntensity(50);
+    intensityTrack.addEventListener("pointerdown", (event) => {
+      intensityTrack.setPointerCapture(event.pointerId);
+      setIntensity(positionToIntensity(event.clientX));
+    });
+    intensityTrack.addEventListener("pointermove", (event) => {
+      if (intensityTrack.hasPointerCapture(event.pointerId)) setIntensity(positionToIntensity(event.clientX));
+    });
+    intensityTrack.addEventListener("pointerup", (event) => {
+      if (intensityTrack.hasPointerCapture(event.pointerId)) intensityTrack.releasePointerCapture(event.pointerId);
+    });
+    intensityTrack.addEventListener("keydown", (event) => {
+      const current = Number(intensityInput.value || 50);
+      if (event.key === "ArrowRight" || event.key === "ArrowUp") { event.preventDefault(); setIntensity(current + 1); }
+      if (event.key === "ArrowLeft" || event.key === "ArrowDown") { event.preventDefault(); setIntensity(current - 1); }
+      if (event.key === "Home") { event.preventDefault(); setIntensity(0); }
+      if (event.key === "End") { event.preventDefault(); setIntensity(100); }
+      if (event.key === "PageUp") { event.preventDefault(); setIntensity(current + 10); }
+      if (event.key === "PageDown") { event.preventDefault(); setIntensity(current - 10); }
+    });
+
+    const api = async (path, options = {}) => {
+      const headers = { ...(options.body !== undefined ? { "content-type": "application/json" } : {}), ...(options.headers || {}) };
+      const response = await fetch(path, { credentials: "include", ...options, headers });
+      const body = response.status === 204 ? null : await response.json();
+      if (!response.ok) throw new Error(body?.message || "요청을 처리하지 못했습니다.");
+      return body;
+    };
+    const startSession = async () => { await api("/guest/session", { method: "POST", body: "{}" }); };
+    const run = async (action) => {
+      $("status").textContent = "처리 중...";
+      try {
+        await action();
+        $("status").textContent = "완료되었습니다.";
+      } catch (error) {
+        $("status").textContent = error.message;
+      }
+    };
+
+    const today = toIsoDate(new Date());
+    $("diaryDate").value = today;
+    $("startDate").value = today;
+
+    let sessionReady = startSession();
+    run(() => sessionReady);
+
+    $("new-session").onclick = () => run(async () => {
+      sessionReady = api("/guest/session", { method: "POST", body: "{}" });
+      await sessionReady;
+      state.goalId = null;
+      state.planId = null;
+      state.diaryId = null;
+      state.selectedDayIndex = null;
+      state.currentPlans = [];
+      state.viewMonth = null;
+      $("feedback-button").disabled = true;
+      $("replan-actions").hidden = true;
+      $("plan-chat-section").hidden = true;
+      $("plan-click-tip").hidden = true;
+      $("startDate").value = today;
+      setPlanPlaceholder("아직 생성된 계획이 없습니다.");
+      show("plan-chat-log", "아직 계획 피드백 대화가 없습니다.");
+      show("feedback-result", "일기를 저장하면 피드백을 받을 수 있습니다.");
+      $("planChatMessage").value = "";
+      $("planDirectTask").value = "";
+      updateDayPanelHeader();
+    });
+
+    $("goal-form").onsubmit = (event) => {
+      event.preventDefault();
+      run(async () => {
+        await sessionReady;
+        const body = {
+          goalText: $("goalText").value,
+          currentState: $("currentState").value,
+          startDate: $("startDate").value,
+          duration: $("duration").value,
+          intensity: Number(intensityInput.value),
+          constraints: $("constraints").value ? [$("constraints").value] : [],
+          metric: $("metric").value,
+        };
+        const goal = await api("/goals", { method: "POST", body: JSON.stringify(body) });
+        state.goalId = goal.data.goalId;
+        const plans = await api(`/goals/${state.goalId}/plans:generate`, { method: "POST" });
+        state.planId = plans.data[0]?.planId;
+        state.selectedDayIndex = null;
+        state.viewMonth = null;
+        $("replan-actions").hidden = false;
+        $("plan-chat-section").hidden = true;
+        $("plan-click-tip").hidden = false;
+        renderPlans(plans.data);
+        show("plan-chat-log", "아직 계획 피드백 대화가 없습니다.");
+        $("planChatMessage").value = "";
+        $("planDirectTask").value = "";
+      });
+    };
+
+    const decidePlan = (type) => run(async () => {
+      if (!state.planId) throw new Error("먼저 계획을 생성해 주세요.");
+      const result = await api(`/plans/${state.planId}/decisions`, { method: "POST", body: JSON.stringify({ type }) });
+      renderPlans(result.data.plans);
+    });
+    $("accept-plan").onclick = () => decidePlan("accept");
+    $("reject-plan").onclick = () => decidePlan("reject");
+
+    $("diary-form").onsubmit = (event) => {
+      event.preventDefault();
+      run(async () => {
+        await sessionReady;
+        if (!state.goalId) throw new Error("먼저 계획을 생성해 주세요.");
+        const diary = await api(`/goals/${state.goalId}/diaries`, { method: "POST", body: JSON.stringify({ date: $("diaryDate").value, content: $("diaryContent").value }) });
+        state.diaryId = diary.data.diaryId;
+        $("feedback-button").disabled = false;
+        show("feedback-result", "일기가 저장되었습니다.");
+      });
+    };
+
+    $("feedback-button").onclick = () => run(async () => {
+      await sessionReady;
+      const feedback = await api(`/diaries/${state.diaryId}/feedback:generate`, { method: "POST", body: "{}" });
+      show("feedback-result", `실행률 추정: ${feedback.data.executionEstimate}%\n\n${feedback.data.summary}\n\n다음 행동:\n- ${feedback.data.nextActions.join("\n- ")}`);
+    });
+
+    $("chat-form").onsubmit = (event) => {
+      event.preventDefault();
+      run(async () => {
+        await sessionReady;
+        const result = await api("/consultation/messages", { method: "POST", body: JSON.stringify({ message: $("chatMessage").value }) });
+        show("chat-result", `나: ${result.data.userMessage.content}\n\n상담: ${result.data.assistantMessage.content}`);
+        $("chatMessage").value = "";
+      });
+    };
+
+    $("plan-result").addEventListener("click", (event) => {
+      const navButton = event.target.closest("button[data-month-nav]");
+      if (navButton) {
+        const direction = navButton.getAttribute("data-month-nav");
+        if (direction === "prev") state.viewMonth = addMonths(state.viewMonth, -1);
+        if (direction === "next") state.viewMonth = addMonths(state.viewMonth, 1);
+        renderPlans(state.currentPlans);
+        return;
+      }
+      const cell = event.target.closest(".calendar-cell.has-plan");
+      if (!cell) return;
+      const dayIndex = Number(cell.getAttribute("data-day-index"));
+      if (!Number.isInteger(dayIndex) || dayIndex <= 0) return;
+      run(() => openDayPanel(dayIndex));
+    });
+
+    $("plan-chat-form").onsubmit = (event) => {
+      event.preventDefault();
+      run(async () => {
+        await sessionReady;
+        if (!state.planId) throw new Error("먼저 계획을 생성해 주세요.");
+        if (!state.selectedDayIndex) throw new Error("수정할 날짜를 먼저 선택해 주세요.");
+        const message = $("planChatMessage").value.trim();
+        if (!message) throw new Error("수정 요청을 입력해 주세요.");
+        const result = await api(`/plans/${state.planId}/days/${state.selectedDayIndex}/feedback:apply`, { method: "POST", body: JSON.stringify({ message }) });
+        renderPlans(result.data.plans);
+        show("plan-chat-log", renderPlanChat(result.data.messages));
+        const plan = selectedDayPlan();
+        $("planDirectTask").value = plan ? plan.tasks.join(" ") : "";
+        $("planChatMessage").value = "";
+      });
+    };
+
+    $("plan-direct-edit-form").onsubmit = (event) => {
+      event.preventDefault();
+      run(async () => {
+        await sessionReady;
+        if (!state.planId) throw new Error("먼저 계획을 생성해 주세요.");
+        if (!state.selectedDayIndex) throw new Error("수정할 날짜를 먼저 선택해 주세요.");
+        const task = $("planDirectTask").value.trim();
+        if (!task) throw new Error("직접 수정 내용을 입력해 주세요.");
+        const result = await api(`/plans/${state.planId}/days/${state.selectedDayIndex}`, { method: "PATCH", body: JSON.stringify({ task }) });
+        renderPlans(result.data.plans);
+      });
+    };
+  </script>
+</body>
+</html>
