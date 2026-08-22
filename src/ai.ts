@@ -9,6 +9,7 @@ export interface AiProvider {
   replan(goal: Goal, plans: PlanDay[], feedback: string): Promise<Record<string, unknown>>;
   revisePlan(goal: Goal, plans: PlanDay[], feedbackMessage: string, history: string[]): Promise<{ assistantMessage: string; tasks: string[] }>;
   revisePlanDay(goal: Goal, plan: PlanDay, feedbackMessage: string, history: string[]): Promise<{ assistantMessage: string; revisedTask: string }>;
+  adjustNextDayPlan(goal: Goal, todayPlan: PlanDay, nextPlan: PlanDay, diary: DiaryEntry): Promise<{ assistantMessage: string; revisedTask: string }>;
 }
 
 export class CopilotSdkProvider implements AiProvider {
@@ -79,7 +80,20 @@ export class CopilotSdkProvider implements AiProvider {
   }
 
   async consult(message: string, history: string[]) {
-    const response = await this.ask(`You are a neutral personal reflection coach. Do not diagnose medical or mental-health conditions, do not shame the user, and do not claim to be a professional. Give concise, practical support in Korean. Conversation history: ${history.join("\n")}. User message: ${message}`);
+    const response = await this.ask(`너는 성찰 플래너의 코치다. 반드시 한국어로 답하고, 짧고 실천 가능한 조언을 준다.
+반드시 지킬 규칙:
+- 개발 도구/코딩/터미널/CLI/모델/시스템/정책/역할(예: GitHub Copilot, Copilot CLI)을 절대 언급하지 않는다.
+- "나는 ~입니다" 형태의 자기소개를 하지 않는다.
+- 의학적/정신건강 진단이나 낙인 표현을 하지 않는다.
+- 사용자가 개인 관계, 감정, 습관, 목표를 말하면 그 주제 안에서만 답한다.
+- 출력은 일반 텍스트로만 작성하고 마크다운 문법(**, 코드블록)을 쓰지 않는다.
+- 2~5문장 이내로 답하고 마지막 문장은 "오늘 할 1가지"를 제안한다.
+
+대화 기록:
+${history.join("\n") || "없음"}
+
+사용자 메시지:
+${message}`);
     return response?.trim() || "기록해 주신 내용을 바탕으로 지금 할 수 있는 작은 행동을 하나 정해 보세요.";
   }
 
@@ -230,6 +244,42 @@ ${feedbackMessage}`);
       const jsonText = objectStart >= 0 && objectEnd > objectStart ? cleaned.slice(objectStart, objectEnd + 1) : cleaned;
       const parsed = JSON.parse(jsonText) as { assistantMessage?: unknown; revisedTask?: unknown };
       const assistantMessage = typeof parsed.assistantMessage === "string" ? parsed.assistantMessage.trim() : "요청을 반영해 해당 일차 계획을 수정했습니다.";
+      const revisedTask = typeof parsed.revisedTask === "string" ? parsed.revisedTask.trim() : "";
+      if (!revisedTask) throw new Error("AI_INVALID_RESPONSE");
+      return { assistantMessage, revisedTask };
+    } catch {
+      throw new Error("AI_INVALID_RESPONSE");
+    }
+  }
+
+  async adjustNextDayPlan(goal: Goal, todayPlan: PlanDay, nextPlan: PlanDay, diary: DiaryEntry) {
+    const response = await this.ask(`너는 계획 조정 코치다. 오늘 기록과 오늘 계획 실행 내용을 바탕으로 내일 계획(1개)만 조정해라.
+반드시 지킬 규칙:
+- 응답은 JSON 객체 하나만 반환한다.
+- 형태는 {"assistantMessage": "...", "revisedTask": "..."} 이어야 한다.
+- revisedTask는 한국어 한 줄 문자열이다.
+- 내일 계획 범위만 수정하고, 전체 계획 설명은 쓰지 않는다.
+- 설명 문장, 코드블록, 마크다운을 추가하지 않는다.
+
+목표: ${goal.goalText}
+달성 기준: ${goal.metric}
+제약: ${goal.constraints.join(", ") || "없음"}
+계획 강도: ${goal.intensity}%
+
+오늘 날짜: ${diary.date}
+오늘 계획: ${todayPlan.tasks.join(" ")}
+오늘 일기: ${diary.content}
+
+내일 날짜: ${nextPlan.planDate}
+내일 기존 계획: ${nextPlan.tasks.join(" ")}`);
+    if (!response) throw new Error("AI_INVALID_RESPONSE");
+    try {
+      const cleaned = response.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+      const objectStart = cleaned.indexOf("{");
+      const objectEnd = cleaned.lastIndexOf("}");
+      const jsonText = objectStart >= 0 && objectEnd > objectStart ? cleaned.slice(objectStart, objectEnd + 1) : cleaned;
+      const parsed = JSON.parse(jsonText) as { assistantMessage?: unknown; revisedTask?: unknown };
+      const assistantMessage = typeof parsed.assistantMessage === "string" ? parsed.assistantMessage.trim() : "오늘 기록을 반영해 내일 계획을 조정했습니다.";
       const revisedTask = typeof parsed.revisedTask === "string" ? parsed.revisedTask.trim() : "";
       if (!revisedTask) throw new Error("AI_INVALID_RESPONSE");
       return { assistantMessage, revisedTask };

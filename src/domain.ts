@@ -34,12 +34,19 @@ export const planDayUpdateInputSchema = z.object({
   task: z.string().trim().min(1).max(2000),
 });
 
+export const nextDayPlanApplyInputSchema = z.object({
+  adjustedDayIndex: z.coerce.number().int().min(1),
+  revisedTask: z.string().trim().min(1).max(2000),
+  assistantMessage: z.string().trim().min(1).max(2000).optional(),
+});
+
 export type GoalInput = z.infer<typeof goalInputSchema>;
 export type DiaryInput = z.infer<typeof diaryInputSchema>;
 export type DecisionInput = z.infer<typeof decisionInputSchema>;
 export type ConsultationInput = z.infer<typeof consultationInputSchema>;
 export type PlanFeedbackInput = z.infer<typeof planFeedbackInputSchema>;
 export type PlanDayUpdateInput = z.infer<typeof planDayUpdateInputSchema>;
+export type NextDayPlanApplyInput = z.infer<typeof nextDayPlanApplyInputSchema>;
 
 export type Goal = GoalInput & {
   goalId: string;

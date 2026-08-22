@@ -23,7 +23,19 @@
     button:disabled { opacity: .55; cursor: wait; }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    [hidden] { display: none !important; }
     .result { margin-top: 16px; padding: 12px; background: #f6f8fa; border-radius: 6px; white-space: pre-wrap; }
+    .plan-list { margin-top: 16px; display: grid; gap: 10px; }
+    .plan-list-item {
+      border: 1px solid #d9e1e8;
+      background: #fff;
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .plan-list-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .plan-list-day { font-size: 12px; font-weight: 700; color: #1846b7; background: #e7efff; border-radius: 999px; padding: 2px 8px; }
+    .plan-list-date { font-size: 12px; color: #667586; }
+    .plan-list-task { margin: 0; line-height: 1.45; color: #1f2a37; }
     .calendar-wrap { margin-top: 16px; border: 1px solid #d9e1e8; border-radius: 10px; overflow: hidden; background: #fff; }
     .calendar-toolbar {
       display: flex;
@@ -106,6 +118,7 @@
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
     }
     .intensity-meta { display: flex; justify-content: space-between; margin-top: 6px; font-size: 13px; color: #4a5561; }
+    .bottom-actions { display: flex; justify-content: center; margin: 18px 0 6px; }
     @media (max-width: 640px) { main { width: min(100% - 20px, 960px); margin: 20px auto; } .grid { grid-template-columns: 1fr; } header { align-items: flex-start; gap: 12px; } }
   </style>
 </head>
@@ -118,12 +131,12 @@
 
     <section>
       <h2>목표와 계획</h2>
-      <form id="goal-form">
+      <form id="goal-form" autocomplete="off">
         <label for="goalText">목표</label>
         <input id="goalText" required maxlength="2000" placeholder="예: 매일 책 읽기">
         <div class="grid">
-          <div><label for="currentState">현재 상태</label><textarea id="currentState" required placeholder="현재 하고 있는 정도를 적어주세요."></textarea></div>
-          <div><label for="metric">달성 확인 기준</label><textarea id="metric" required placeholder="목표를 달성했는지 어떻게 확인할까요? 예: 주 5회, 하루 20분"></textarea></div>
+          <div><label for="currentState">현재 상태</label><textarea id="currentState" required placeholder="설명: 지금 어느 정도 하고 있는지 적어주세요. 예: 주 1회, 10분만 실천"></textarea></div>
+          <div><label for="metric">달성 확인 기준</label><textarea id="metric" required placeholder="설명: 달성 여부를 판단할 기준을 적어주세요. 예: 주 5회, 하루 20분"></textarea></div>
         </div>
         <div class="grid">
           <div><label for="startDate">시작일</label><input id="startDate" type="date" required></div>
@@ -138,12 +151,11 @@
           <div class="intensity-meta"><span>0%</span><strong id="intensity-label">50%</strong><span>100%</span></div>
           <input id="intensity" type="hidden" value="50">
         </div>
-        <div class="actions"><button type="submit">계획 생성</button></div>
+        <div class="actions"><button id="generate-plan-button" type="button">계획 생성</button></div>
       </form>
       <div id="plan-result" class="result muted">아직 생성된 계획이 없습니다.</div>
-      <div id="replan-actions" class="actions" hidden>
-        <button id="accept-plan" type="button">조정안 수용</button>
-        <button id="reject-plan" type="button" class="secondary">기존 계획 유지</button>
+      <div id="confirm-actions" class="actions" hidden>
+        <button id="confirm-plan" type="button">계획 확정</button>
       </div>
       <p id="plan-click-tip" class="plan-tip" hidden>달력에서 계획이 있는 날짜를 누르면 해당 날짜(일차) 전용 피드백/수정 패널이 열립니다.</p>
       <div id="plan-chat-section" hidden>
@@ -163,14 +175,18 @@
       </div>
     </section>
 
-    <section>
+    <section id="diary-section" hidden>
       <h2>오늘의 기록</h2>
       <form id="diary-form">
         <label for="diaryDate">날짜</label><input id="diaryDate" type="date" required>
         <label for="diaryContent">일기</label><textarea id="diaryContent" required placeholder="오늘 실행한 내용과 느낀 점을 적어주세요."></textarea>
-        <div class="actions"><button type="submit">일기 저장</button><button id="feedback-button" type="button" class="secondary" disabled>피드백 받기</button></div>
+        <div class="actions"><button id="diary-save-button" type="submit">일기 저장</button><button id="feedback-button" type="button" class="secondary" disabled>피드백 받기</button><button id="adjust-next-day-button" type="button" class="secondary" disabled>다음날 계획 조정</button></div>
       </form>
-      <div id="feedback-result" class="result muted">일기를 저장하면 피드백을 받을 수 있습니다.</div>
+      <div id="feedback-result" class="result muted">계획을 확정하면 일기를 작성할 수 있습니다.</div>
+      <div id="next-day-adjust-actions" class="actions" hidden>
+        <button id="apply-next-day-adjust-button" type="button">변경 적용</button>
+        <button id="cancel-next-day-adjust-button" type="button" class="secondary">취소</button>
+      </div>
     </section>
 
     <section>
@@ -184,6 +200,9 @@
     </section>
 
     <div id="status" class="muted" role="status"></div>
+    <div class="bottom-actions">
+      <button id="new-plan-button" type="button" class="secondary" hidden>새로운 계획 만들기</button>
+    </div>
   </main>
   <script>
     const state = {
@@ -193,6 +212,8 @@
       selectedDayIndex: null,
       currentPlans: [],
       viewMonth: null,
+      planConfirmed: false,
+      pendingNextDayAdjustment: null,
     };
     const $ = (id) => document.getElementById(id);
     const show = (id, value, error = false) => { $(id).textContent = value; $(id).className = `result${error ? " error" : ""}`; };
@@ -235,6 +256,30 @@
       state.currentPlans = [];
       state.selectedDayIndex = null;
       state.viewMonth = null;
+      state.planConfirmed = false;
+    };
+    const setDiaryAvailability = (enabled) => {
+      $("diary-section").hidden = !enabled;
+      $("diaryDate").disabled = !enabled;
+      $("diaryContent").disabled = !enabled;
+      $("diary-save-button").disabled = !enabled;
+      if (!enabled) {
+        $("feedback-button").disabled = true;
+        $("adjust-next-day-button").disabled = true;
+        $("next-day-adjust-actions").hidden = true;
+        state.pendingNextDayAdjustment = null;
+        show("feedback-result", "계획을 확정하면 일기를 작성할 수 있습니다.");
+      } else if (!state.diaryId) {
+        $("feedback-button").disabled = true;
+        $("adjust-next-day-button").disabled = true;
+        $("next-day-adjust-actions").hidden = true;
+        state.pendingNextDayAdjustment = null;
+        show("feedback-result", "일기를 저장하면 피드백을 받을 수 있습니다.");
+      }
+    };
+    const setPlanningEditorVisibility = (visible) => {
+      $("goal-form").hidden = !visible;
+      $("new-plan-button").hidden = visible;
     };
     const planRangeMonths = () => {
       if (state.currentPlans.length === 0) return { minMonth: null, maxMonth: null };
@@ -279,6 +324,19 @@
       show("plan-chat-log", renderPlanChat(messages.data));
     };
     const renderPlans = (plans) => {
+      if (!state.planConfirmed) {
+        const planResult = $("plan-result");
+        if (!plans || plans.length === 0) return setPlanPlaceholder("아직 생성된 계획이 없습니다.");
+        const sortedPlans = plans.slice().sort((a, b) => a.dayIndex - b.dayIndex);
+        state.currentPlans = sortedPlans;
+        const items = sortedPlans
+          .map((plan) => `<article class="plan-list-item"><div class="plan-list-head"><span class="plan-list-day">${plan.dayIndex}일차</span><span class="plan-list-date">${plan.planDate}</span></div><p class="plan-list-task">${escapeHtml(plan.tasks.join(" "))}</p></article>`)
+          .join("");
+        planResult.className = "plan-list";
+        planResult.innerHTML = items;
+        return;
+      }
+
       const planResult = $("plan-result");
       if (!plans || plans.length === 0) return setPlanPlaceholder("아직 생성된 계획이 없습니다.");
 
@@ -404,8 +462,19 @@
     };
 
     const today = toIsoDate(new Date());
+    const resetGoalInputs = () => {
+      $("goalText").value = "";
+      $("currentState").value = "";
+      $("metric").value = "";
+      $("constraints").value = "";
+      $("duration").value = "7일";
+      setIntensity(50);
+    };
     $("diaryDate").value = today;
     $("startDate").value = today;
+    resetGoalInputs();
+    setDiaryAvailability(false);
+    setPlanningEditorVisibility(true);
 
     let sessionReady = startSession();
     run(() => sessionReady);
@@ -419,65 +488,114 @@
       state.selectedDayIndex = null;
       state.currentPlans = [];
       state.viewMonth = null;
+      state.planConfirmed = false;
       $("feedback-button").disabled = true;
-      $("replan-actions").hidden = true;
+      $("adjust-next-day-button").disabled = true;
+      $("next-day-adjust-actions").hidden = true;
+      state.pendingNextDayAdjustment = null;
+      $("confirm-actions").hidden = true;
       $("plan-chat-section").hidden = true;
       $("plan-click-tip").hidden = true;
+      setPlanningEditorVisibility(true);
       $("startDate").value = today;
+      resetGoalInputs();
+      $("diaryContent").value = "";
       setPlanPlaceholder("아직 생성된 계획이 없습니다.");
       show("plan-chat-log", "아직 계획 피드백 대화가 없습니다.");
-      show("feedback-result", "일기를 저장하면 피드백을 받을 수 있습니다.");
       $("planChatMessage").value = "";
       $("planDirectTask").value = "";
       updateDayPanelHeader();
+      setDiaryAvailability(false);
     });
 
-    $("goal-form").onsubmit = (event) => {
+    const generatePlan = () => run(async () => {
+      await sessionReady;
+      const body = {
+        goalText: $("goalText").value,
+        currentState: $("currentState").value,
+        startDate: $("startDate").value,
+        duration: $("duration").value,
+        intensity: Number(intensityInput.value),
+        constraints: $("constraints").value ? [$("constraints").value] : [],
+        metric: $("metric").value,
+      };
+      const goal = await api("/goals", { method: "POST", body: JSON.stringify(body) });
+      state.goalId = goal.data.goalId;
+      const plans = await api(`/goals/${state.goalId}/plans:generate`, { method: "POST" });
+      state.planId = plans.data[0]?.planId;
+      state.selectedDayIndex = null;
+      state.viewMonth = null;
+      state.planConfirmed = false;
+      $("confirm-actions").hidden = false;
+      $("plan-chat-section").hidden = true;
+      $("plan-click-tip").hidden = true;
+      renderPlans(plans.data);
+      show("plan-chat-log", "아직 계획 피드백 대화가 없습니다.");
+      $("planChatMessage").value = "";
+      $("planDirectTask").value = "";
+      state.diaryId = null;
+      setDiaryAvailability(false);
+    });
+
+    $("goal-form").addEventListener("submit", (event) => {
       event.preventDefault();
-      run(async () => {
-        await sessionReady;
-        const body = {
-          goalText: $("goalText").value,
-          currentState: $("currentState").value,
-          startDate: $("startDate").value,
-          duration: $("duration").value,
-          intensity: Number(intensityInput.value),
-          constraints: $("constraints").value ? [$("constraints").value] : [],
-          metric: $("metric").value,
-        };
-        const goal = await api("/goals", { method: "POST", body: JSON.stringify(body) });
-        state.goalId = goal.data.goalId;
-        const plans = await api(`/goals/${state.goalId}/plans:generate`, { method: "POST" });
-        state.planId = plans.data[0]?.planId;
-        state.selectedDayIndex = null;
-        state.viewMonth = null;
-        $("replan-actions").hidden = false;
-        $("plan-chat-section").hidden = true;
-        $("plan-click-tip").hidden = false;
-        renderPlans(plans.data);
-        show("plan-chat-log", "아직 계획 피드백 대화가 없습니다.");
-        $("planChatMessage").value = "";
-        $("planDirectTask").value = "";
-      });
-    };
-
-    const decidePlan = (type) => run(async () => {
-      if (!state.planId) throw new Error("먼저 계획을 생성해 주세요.");
-      const result = await api(`/plans/${state.planId}/decisions`, { method: "POST", body: JSON.stringify({ type }) });
-      renderPlans(result.data.plans);
     });
-    $("accept-plan").onclick = () => decidePlan("accept");
-    $("reject-plan").onclick = () => decidePlan("reject");
+    $("goal-form").addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && event.target instanceof HTMLElement && event.target.tagName !== "TEXTAREA") {
+        event.preventDefault();
+      }
+    });
+    $("generate-plan-button").onclick = generatePlan;
+    $("confirm-plan").onclick = () => run(async () => {
+      if (!state.planId || state.currentPlans.length === 0) throw new Error("먼저 계획을 생성해 주세요.");
+      state.planConfirmed = true;
+      state.selectedDayIndex = null;
+      $("confirm-actions").hidden = true;
+      $("plan-click-tip").hidden = false;
+      $("plan-chat-section").hidden = true;
+      setPlanningEditorVisibility(false);
+      renderPlans(state.currentPlans);
+      setDiaryAvailability(true);
+    });
+
+    $("new-plan-button").onclick = () => run(async () => {
+      state.goalId = null;
+      state.planId = null;
+      state.diaryId = null;
+      state.selectedDayIndex = null;
+      state.currentPlans = [];
+      state.viewMonth = null;
+      state.planConfirmed = false;
+      $("confirm-actions").hidden = true;
+      $("plan-chat-section").hidden = true;
+      $("plan-click-tip").hidden = true;
+      $("next-day-adjust-actions").hidden = true;
+      state.pendingNextDayAdjustment = null;
+      setPlanningEditorVisibility(true);
+      setDiaryAvailability(false);
+      setPlanPlaceholder("아직 생성된 계획이 없습니다.");
+      show("plan-chat-log", "아직 계획 피드백 대화가 없습니다.");
+      $("planChatMessage").value = "";
+      $("planDirectTask").value = "";
+      resetGoalInputs();
+      $("diaryContent").value = "";
+      $("startDate").value = today;
+      updateDayPanelHeader();
+    });
 
     $("diary-form").onsubmit = (event) => {
       event.preventDefault();
       run(async () => {
         await sessionReady;
         if (!state.goalId) throw new Error("먼저 계획을 생성해 주세요.");
+        if (!state.planConfirmed) throw new Error("계획을 먼저 확정해 주세요.");
         const diary = await api(`/goals/${state.goalId}/diaries`, { method: "POST", body: JSON.stringify({ date: $("diaryDate").value, content: $("diaryContent").value }) });
         state.diaryId = diary.data.diaryId;
         $("feedback-button").disabled = false;
-        show("feedback-result", "일기가 저장되었습니다.");
+        $("adjust-next-day-button").disabled = false;
+        $("next-day-adjust-actions").hidden = true;
+        state.pendingNextDayAdjustment = null;
+        show("feedback-result", "일기가 저장되었습니다. 이제 피드백을 받거나 다음날 계획을 조정할 수 있습니다.");
       });
     };
 
@@ -486,6 +604,49 @@
       const feedback = await api(`/diaries/${state.diaryId}/feedback:generate`, { method: "POST", body: "{}" });
       show("feedback-result", `실행률 추정: ${feedback.data.executionEstimate}%\n\n${feedback.data.summary}\n\n다음 행동:\n- ${feedback.data.nextActions.join("\n- ")}`);
     });
+
+    $("adjust-next-day-button").onclick = () => run(async () => {
+      await sessionReady;
+      if (!state.diaryId) throw new Error("먼저 일기를 저장해 주세요.");
+      if (!state.planId) throw new Error("먼저 계획을 생성해 주세요.");
+      const preview = await api(`/diaries/${state.diaryId}/next-day-plan:adjust`, { method: "POST", body: "{}" });
+      state.pendingNextDayAdjustment = {
+        adjustedDayIndex: preview.data.adjustedDayIndex,
+        previousTask: preview.data.previousTask,
+        revisedTask: preview.data.revisedTask,
+        assistantMessage: preview.data.assistantMessage,
+      };
+      $("next-day-adjust-actions").hidden = false;
+      show("feedback-result", `AI 코멘트: ${preview.data.assistantMessage}\n\n변경 전: ${preview.data.previousTask || "(기존 계획 없음)"}\n변경 후: ${preview.data.revisedTask}\n\n이 변경을 적용할까요?`);
+    });
+
+    $("apply-next-day-adjust-button").onclick = () => run(async () => {
+      await sessionReady;
+      if (!state.diaryId) throw new Error("먼저 일기를 저장해 주세요.");
+      if (!state.pendingNextDayAdjustment) throw new Error("먼저 다음날 계획 조정을 미리보기 해주세요.");
+      const result = await api(`/diaries/${state.diaryId}/next-day-plan:apply`, {
+        method: "POST",
+        body: JSON.stringify({
+          adjustedDayIndex: state.pendingNextDayAdjustment.adjustedDayIndex,
+          revisedTask: state.pendingNextDayAdjustment.revisedTask,
+          assistantMessage: state.pendingNextDayAdjustment.assistantMessage,
+        }),
+      });
+      state.selectedDayIndex = result.data.adjustedDayIndex;
+      renderPlans(result.data.plans);
+      show("feedback-result", `다음날 계획 변경이 적용되었습니다.\n\n변경 전: ${result.data.previousTask || "(기존 계획 없음)"}\n변경 후: ${result.data.revisedTask}`);
+      $("next-day-adjust-actions").hidden = true;
+      state.pendingNextDayAdjustment = null;
+      if (state.planConfirmed && state.selectedDayIndex) {
+        await openDayPanel(state.selectedDayIndex);
+      }
+    });
+
+    $("cancel-next-day-adjust-button").onclick = () => {
+      state.pendingNextDayAdjustment = null;
+      $("next-day-adjust-actions").hidden = true;
+      show("feedback-result", "다음날 계획 변경을 취소했습니다. 필요하면 다시 조정을 요청해 주세요.");
+    };
 
     $("chat-form").onsubmit = (event) => {
       event.preventDefault();
@@ -498,6 +659,7 @@
     };
 
     $("plan-result").addEventListener("click", (event) => {
+      if (!state.planConfirmed) return;
       const navButton = event.target.closest("button[data-month-nav]");
       if (navButton) {
         const direction = navButton.getAttribute("data-month-nav");

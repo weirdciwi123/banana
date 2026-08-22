@@ -3,7 +3,7 @@ import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import { join } from "node:path";
-import { consultationInputSchema, createId, diaryInputSchema, decisionInputSchema, goalInputSchema, now, planDayUpdateInputSchema, planFeedbackInputSchema } from "./domain.js";
+import { consultationInputSchema, createId, diaryInputSchema, decisionInputSchema, goalInputSchema, nextDayPlanApplyInputSchema, now, planDayUpdateInputSchema, planFeedbackInputSchema } from "./domain.js";
 import { CopilotSdkProvider } from "./ai.js";
 import { MemoryStore } from "./store.js";
 import { MicrosoftAgentWorkflow } from "./workflow.js";
@@ -134,6 +134,104 @@ app.post<{ Params: { diaryId: string } }>("/diaries/:diaryId/feedback:generate",
   const goal = diary ? store.getGoal(diary.goalId, id) : undefined;
   if (!diary || !goal) return reply.code(404).send({ code: "NOT_FOUND", message: "리소스를 찾을 수 없습니다." });
   try { const feedback = await workflow.createFeedback(goal, diary); store.saveFeedback(feedback); return reply.code(201).send({ data: feedback }); } catch (error) { if (error instanceof Error && error.message === "POLICY_BLOCKED") return reply.code(422).send({ code: "POLICY_BLOCKED", message: "정책 검증을 통과하지 못했습니다." }); throw error; }
+});
+
+app.post<{ Params: { diaryId: string } }>("/diaries/:diaryId/next-day-plan:adjust", async (request, reply) => {
+  const id = requireSession(request, reply);
+  if (!id) return;
+
+  const diary = store.getDiary(request.params.diaryId, id);
+  const goal = diary ? store.getGoal(diary.goalId, id) : undefined;
+  if (!diary || !goal) return reply.code(404).send({ code: "NOT_FOUND", message: "리소스를 찾을 수 없습니다." });
+
+  const goalPlans = store.getPlansForGoal(goal.goalId, id).slice().sort((a, b) => a.dayIndex - b.dayIndex);
+  if (goalPlans.length === 0) return reply.code(404).send({ code: "NOT_FOUND", message: "리소스를 찾을 수 없습니다." });
+  const todayPlan = goalPlans.find((plan) => plan.planDate === diary.date);
+  if (!todayPlan) return reply.code(404).send({ code: "PLAN_DAY_NOT_FOUND", message: "일기 날짜에 해당하는 계획을 찾을 수 없습니다." });
+
+  const samePlanDays = store.getPlans(todayPlan.planId, id).slice().sort((a, b) => a.dayIndex - b.dayIndex);
+  const hasNextDay = samePlanDays.some((plan) => plan.dayIndex === todayPlan.dayIndex + 1);
+  if (!hasNextDay) return reply.code(409).send({ code: "NEXT_PLAN_NOT_FOUND", message: "조정할 다음날 계획이 없습니다." });
+
+  try {
+    const result = await workflow.previewNextDayAdjustmentFromDiary(goal, samePlanDays, diary);
+
+    return reply.code(201).send({
+      data: {
+        planId: todayPlan.planId,
+        adjustedDayIndex: result.adjustedDayIndex,
+        previousTask: result.previousTask,
+        revisedTask: result.revisedTask,
+        assistantMessage: result.assistantMessage,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "PLAN_DAY_NOT_FOUND") return reply.code(404).send({ code: "PLAN_DAY_NOT_FOUND", message: "일기 날짜에 해당하는 계획을 찾을 수 없습니다." });
+    if (error instanceof Error && error.message === "NEXT_PLAN_NOT_FOUND") return reply.code(409).send({ code: "NEXT_PLAN_NOT_FOUND", message: "조정할 다음날 계획이 없습니다." });
+    if (error instanceof Error && error.message === "POLICY_BLOCKED") return reply.code(422).send({ code: "POLICY_BLOCKED", message: "정책 검증을 통과하지 못했습니다." });
+    throw error;
+  }
+});
+
+app.post<{ Params: { diaryId: string }; Body: unknown }>("/diaries/:diaryId/next-day-plan:apply", async (request, reply) => {
+  const id = requireSession(request, reply);
+  if (!id) return;
+
+  const parsed = nextDayPlanApplyInputSchema.safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send({ code: "INVALID_INPUT", message: "다음날 계획 적용 입력을 확인해 주세요." });
+
+  const diary = store.getDiary(request.params.diaryId, id);
+  const goal = diary ? store.getGoal(diary.goalId, id) : undefined;
+  if (!diary || !goal) return reply.code(404).send({ code: "NOT_FOUND", message: "리소스를 찾을 수 없습니다." });
+
+  const goalPlans = store.getPlansForGoal(goal.goalId, id).slice().sort((a, b) => a.dayIndex - b.dayIndex);
+  if (goalPlans.length === 0) return reply.code(404).send({ code: "NOT_FOUND", message: "리소스를 찾을 수 없습니다." });
+  const todayPlan = goalPlans.find((plan) => plan.planDate === diary.date);
+  if (!todayPlan) return reply.code(404).send({ code: "PLAN_DAY_NOT_FOUND", message: "일기 날짜에 해당하는 계획을 찾을 수 없습니다." });
+
+  const samePlanDays = store.getPlans(todayPlan.planId, id).slice().sort((a, b) => a.dayIndex - b.dayIndex);
+
+  try {
+    const result = workflow.applyNextDayAdjustment(goal, samePlanDays, diary, parsed.data.adjustedDayIndex, parsed.data.revisedTask);
+    store.replacePlans(todayPlan.planId, result.updatedPlans);
+    store.saveDecision(result.decision);
+
+    const userMessage = {
+      messageId: createId(),
+      planId: todayPlan.planId,
+      dayIndex: result.adjustedDayIndex,
+      guestSessionId: id,
+      role: "user" as const,
+      content: `오늘 기록 반영으로 다음날 계획 조정 요청: ${diary.content}`,
+      createdAt: now(),
+    };
+    const assistantMessage = {
+      messageId: createId(),
+      planId: todayPlan.planId,
+      dayIndex: result.adjustedDayIndex,
+      guestSessionId: id,
+      role: "assistant" as const,
+      content: parsed.data.assistantMessage ?? "오늘 기록을 반영해 다음날 계획을 조정했습니다.",
+      createdAt: now(),
+    };
+    store.savePlanMessage(userMessage);
+    store.savePlanMessage(assistantMessage);
+
+    return reply.code(201).send({
+      data: {
+        plans: result.updatedPlans,
+        adjustedDayIndex: result.adjustedDayIndex,
+        previousTask: result.previousTask,
+        revisedTask: result.revisedTask,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "PLAN_DAY_NOT_FOUND") return reply.code(404).send({ code: "PLAN_DAY_NOT_FOUND", message: "일기 날짜에 해당하는 계획을 찾을 수 없습니다." });
+    if (error instanceof Error && error.message === "NEXT_PLAN_NOT_FOUND") return reply.code(409).send({ code: "NEXT_PLAN_NOT_FOUND", message: "조정할 다음날 계획이 없습니다." });
+    if (error instanceof Error && error.message === "INVALID_TARGET_DAY") return reply.code(400).send({ code: "INVALID_INPUT", message: "적용 대상 일차가 올바르지 않습니다." });
+    if (error instanceof Error && error.message === "INVALID_PLAN_TASK") return reply.code(400).send({ code: "INVALID_INPUT", message: "적용할 계획 문장을 확인해 주세요." });
+    throw error;
+  }
 });
 
 app.get<{ Params: { diaryId: string } }>("/diaries/:diaryId/feedback", async (request, reply) => {

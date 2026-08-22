@@ -24,6 +24,7 @@ const provider: AiProvider = {
   replan: async () => ({ adjustment: "reduce_scope" }),
   revisePlan: async () => ({ assistantMessage: "요청을 반영해 계획을 수정했습니다.", tasks: ["20분 읽기", "읽은 내용 기록하기"] }),
   revisePlanDay: async () => ({ assistantMessage: "요청을 반영해 해당 일차를 수정했습니다.", revisedTask: "20분 읽기" }),
+  adjustNextDayPlan: async () => ({ assistantMessage: "오늘 기록을 반영해 내일 계획을 조정했습니다.", revisedTask: "핵심 문단 10분 읽고 5줄 요약하기" }),
 };
 
 describe("MicrosoftAgentWorkflow", () => {
@@ -52,5 +53,66 @@ describe("MicrosoftAgentWorkflow", () => {
   it("blocks prohibited consultation output", async () => {
     const unsafeProvider: AiProvider = { ...provider, consult: async () => "당신은 진단이 필요합니다." };
     await expect(new MicrosoftAgentWorkflow(unsafeProvider).consult("session-1", "도와줘", [])).rejects.toThrow("POLICY_BLOCKED");
+  });
+
+  it("replaces meta consultation response with coaching fallback", async () => {
+    const metaProvider: AiProvider = {
+      ...provider,
+      consult: async () => "저는 GitHub Copilot CLI로 소프트웨어 개발 작업을 돕는 터미널 어시스턴트입니다.",
+    };
+    const message = await new MicrosoftAgentWorkflow(metaProvider).consult("session-1", "여자친구 사귀고 싶다", []);
+    expect(message.content).toContain("오늘 할 1가지");
+    expect(message.content.toLowerCase()).not.toContain("copilot");
+    expect(message.content).not.toContain("소프트웨어 개발");
+  });
+
+  it("previews next day adjustment from diary reflection", async () => {
+    const workflow = new MicrosoftAgentWorkflow(provider);
+    const plans = await workflow.createPlan(goal);
+    const firstDay = plans[0];
+    expect(firstDay).toBeDefined();
+    if (!firstDay) return;
+    const result = await workflow.previewNextDayAdjustmentFromDiary(goal, plans, {
+      diaryId: "diary-1",
+      goalId: goal.goalId,
+      guestSessionId: goal.guestSessionId,
+      date: firstDay.planDate,
+      content: "오늘은 20분 읽기 중 10분만 했고 집중이 잘 안 됐다.",
+      createdAt: goal.createdAt,
+      updatedAt: goal.updatedAt,
+    });
+
+    expect(result.adjustedDayIndex).toBe(2);
+    expect(result.revisedTask).toBe("핵심 문단 10분 읽고 5줄 요약하기");
+  });
+
+  it("applies next day adjustment after confirmation", async () => {
+    const workflow = new MicrosoftAgentWorkflow(provider);
+    const plans = await workflow.createPlan(goal);
+    const firstDay = plans[0];
+    expect(firstDay).toBeDefined();
+    if (!firstDay) return;
+
+    const applied = workflow.applyNextDayAdjustment(
+      goal,
+      plans,
+      {
+        diaryId: "diary-1",
+        goalId: goal.goalId,
+        guestSessionId: goal.guestSessionId,
+        date: firstDay.planDate,
+        content: "오늘은 20분 읽기 중 10분만 했고 집중이 잘 안 됐다.",
+        createdAt: goal.createdAt,
+        updatedAt: goal.updatedAt,
+      },
+      2,
+      "핵심 문단 10분 읽고 5줄 요약하기",
+    );
+
+    const secondDay = applied.updatedPlans[1];
+    expect(secondDay).toBeDefined();
+    if (!secondDay) return;
+    expect(secondDay.tasks[0]).toBe("핵심 문단 10분 읽고 5줄 요약하기");
+    expect(applied.decision.changedFields).toContain("day:2:tasks");
   });
 });

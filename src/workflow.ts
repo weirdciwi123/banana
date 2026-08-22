@@ -3,9 +3,26 @@ import type { AiProvider } from "./ai.js";
 import type { ConversationMessage, DiaryEntry, Feedback, Goal, PlanDay, ReplanDecision } from "./domain.js";
 
 const prohibited = ["게으르", "무능", "의지가 약", "실패자", "진단"];
+const consultationMetaIndicators = [
+  "github copilot",
+  "copilot cli",
+  "terminal",
+  "cli",
+  "software",
+  "소프트웨어",
+  "코드 작성",
+  "디버깅",
+  "개발 작업",
+  "어시스턴트",
+  "역할이 아니",
+];
 
 export class MicrosoftAgentWorkflow {
   constructor(private readonly provider: AiProvider) {}
+
+  private normalizeTask(task: string) {
+    return task.replace(/^(?:Day\s*\d+\s*:\s*|\d+\s*일차(?:는)?\s*[:\-]?\s*)/i, "").trim();
+  }
 
   private addDays(baseDate: Date, days: number) {
     const date = new Date(baseDate);
@@ -28,7 +45,7 @@ export class MicrosoftAgentWorkflow {
       guestSessionId: goal.guestSessionId,
       dayIndex: index + 1,
       planDate: this.toIsoDate(this.addDays(startDate, index)),
-      tasks: [task.replace(/^(?:Day\s*\d+\s*:\s*|\d+\s*일차(?:는)?\s*[:\-]?\s*)/i, "").trim()],
+      tasks: [this.normalizeTask(task)],
       status: "planned",
       createdAt: now(),
       updatedAt: now(),
@@ -37,9 +54,13 @@ export class MicrosoftAgentWorkflow {
 
   async consult(sessionId: string, message: string, history: ConversationMessage[]): Promise<ConversationMessage> {
     const response = await this.provider.consult(message, history.map((item) => `${item.role}: ${item.content}`));
-    const combined = response.toLowerCase();
-    if (!response || prohibited.some((word) => combined.includes(word))) throw new Error("POLICY_BLOCKED");
-    return { messageId: createId(), guestSessionId: sessionId, role: "assistant", content: response, createdAt: now() };
+    const normalized = response.trim();
+    const combined = normalized.toLowerCase();
+    if (!normalized || prohibited.some((word) => combined.includes(word))) throw new Error("POLICY_BLOCKED");
+
+    const fallback = "좋아요. 지금 마음을 기준으로 아주 작게 시작해 볼게요. 오늘 대화에서 시도할 상황 1가지를 정하고, 먼저 건넬 한 문장을 미리 적어보세요. 오늘 할 1가지는 '인사 + 짧은 질문 1개'를 실제로 해보는 것입니다.";
+    const safeResponse = consultationMetaIndicators.some((word) => combined.includes(word)) ? fallback : normalized;
+    return { messageId: createId(), guestSessionId: sessionId, role: "assistant", content: safeResponse, createdAt: now() };
   }
 
   async createFeedback(goal: Goal, diary: DiaryEntry): Promise<Feedback> {
@@ -62,7 +83,7 @@ export class MicrosoftAgentWorkflow {
 
   async applyPlanFeedback(goal: Goal, plans: PlanDay[], feedbackMessage: string, history: string[]) {
     const revision = await this.provider.revisePlan(goal, plans, feedbackMessage, history);
-    const normalizedTasks = revision.tasks.map((task) => task.replace(/^(?:Day\s*\d+\s*:\s*|\d+\s*일차\s*[:\-]?\s*)/i, "").trim());
+    const normalizedTasks = revision.tasks.map((task) => this.normalizeTask(task));
     const combined = `${revision.assistantMessage} ${normalizedTasks.join(" ")}`.toLowerCase();
     if (!revision.assistantMessage || normalizedTasks.length !== plans.length || prohibited.some((word) => combined.includes(word))) throw new Error("POLICY_BLOCKED");
 
@@ -92,7 +113,7 @@ export class MicrosoftAgentWorkflow {
     const target = plans.find((plan) => plan.dayIndex === dayIndex);
     if (!target) throw new Error("PLAN_DAY_NOT_FOUND");
     const revision = await this.provider.revisePlanDay(goal, target, feedbackMessage, history);
-    const revisedTask = revision.revisedTask.replace(/^(?:Day\s*\d+\s*:\s*|\d+\s*일차(?:는)?\s*[:\-]?\s*)/i, "").trim();
+    const revisedTask = this.normalizeTask(revision.revisedTask);
     const combined = `${revision.assistantMessage} ${revisedTask}`.toLowerCase();
     if (!revision.assistantMessage || !revisedTask || prohibited.some((word) => combined.includes(word))) throw new Error("POLICY_BLOCKED");
 
@@ -115,7 +136,7 @@ export class MicrosoftAgentWorkflow {
   }
 
   updatePlanDayDirectly(plans: PlanDay[], dayIndex: number, task: string) {
-    const normalizedTask = task.replace(/^(?:Day\s*\d+\s*:\s*|\d+\s*일차(?:는)?\s*[:\-]?\s*)/i, "").trim();
+    const normalizedTask = this.normalizeTask(task);
     if (!normalizedTask) throw new Error("INVALID_PLAN_TASK");
     const target = plans.find((plan) => plan.dayIndex === dayIndex);
     if (!target) throw new Error("PLAN_DAY_NOT_FOUND");
@@ -123,5 +144,63 @@ export class MicrosoftAgentWorkflow {
       if (plan.dayIndex !== dayIndex) return plan;
       return { ...plan, tasks: [normalizedTask], updatedAt: now() };
     });
+  }
+
+  async previewNextDayAdjustmentFromDiary(goal: Goal, plans: PlanDay[], diary: DiaryEntry) {
+    const sortedPlans = plans.slice().sort((a, b) => a.dayIndex - b.dayIndex);
+    const todayPlan = sortedPlans.find((plan) => plan.planDate === diary.date);
+    if (!todayPlan) throw new Error("PLAN_DAY_NOT_FOUND");
+    const nextPlan = sortedPlans.find((plan) => plan.dayIndex === todayPlan.dayIndex + 1);
+    if (!nextPlan) throw new Error("NEXT_PLAN_NOT_FOUND");
+
+    const revision = await this.provider.adjustNextDayPlan(goal, todayPlan, nextPlan, diary);
+    const revisedTask = this.normalizeTask(revision.revisedTask);
+    const assistantMessage = revision.assistantMessage.trim();
+    const combined = `${assistantMessage} ${revisedTask}`.toLowerCase();
+    if (!assistantMessage || !revisedTask || prohibited.some((word) => combined.includes(word))) throw new Error("POLICY_BLOCKED");
+
+    return {
+      assistantMessage,
+      adjustedDayIndex: nextPlan.dayIndex,
+      previousTask: nextPlan.tasks[0] ?? "",
+      revisedTask,
+    };
+  }
+
+  applyNextDayAdjustment(goal: Goal, plans: PlanDay[], diary: DiaryEntry, adjustedDayIndex: number, revisedTask: string) {
+    const normalizedTask = this.normalizeTask(revisedTask);
+    if (!normalizedTask) throw new Error("INVALID_PLAN_TASK");
+
+    const sortedPlans = plans.slice().sort((a, b) => a.dayIndex - b.dayIndex);
+    const todayPlan = sortedPlans.find((plan) => plan.planDate === diary.date);
+    if (!todayPlan) throw new Error("PLAN_DAY_NOT_FOUND");
+    const expectedDayIndex = todayPlan.dayIndex + 1;
+    if (expectedDayIndex !== adjustedDayIndex) throw new Error("INVALID_TARGET_DAY");
+
+    const targetPlan = sortedPlans.find((plan) => plan.dayIndex === adjustedDayIndex);
+    if (!targetPlan) throw new Error("NEXT_PLAN_NOT_FOUND");
+
+    const updatedPlans = sortedPlans.map((plan) => {
+      if (plan.dayIndex !== adjustedDayIndex) return plan;
+      return { ...plan, tasks: [normalizedTask], updatedAt: now() };
+    });
+
+    const decision: ReplanDecision = {
+      decisionId: createId(),
+      planId: plans[0]?.planId ?? "",
+      guestSessionId: goal.guestSessionId,
+      type: "accept",
+      proposedChanges: { diaryId: diary.diaryId, date: diary.date, updatedByDiaryReflection: true },
+      changedFields: [`day:${adjustedDayIndex}:tasks`],
+      createdAt: now(),
+    };
+
+    return {
+      updatedPlans,
+      adjustedDayIndex,
+      previousTask: targetPlan.tasks[0] ?? "",
+      revisedTask: normalizedTask,
+      decision,
+    };
   }
 }
