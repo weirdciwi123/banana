@@ -1,6 +1,8 @@
 import { createId, now } from "./domain.js";
 import type { AiProvider } from "./ai.js";
 import type { ConversationMessage, DiaryEntry, Feedback, Goal, PlanDay, ReplanDecision } from "./domain.js";
+import { MicrosoftAgentFrameworkRuntime } from "./agent-framework.js";
+import type { AgentFrameworkRuntime } from "./agent-framework.js";
 
 const prohibited = ["게으르", "무능", "의지가 약", "실패자", "진단"];
 const consultationMetaIndicators = [
@@ -18,7 +20,7 @@ const consultationMetaIndicators = [
 ];
 
 export class MicrosoftAgentWorkflow {
-  constructor(private readonly provider: AiProvider) {}
+  constructor(private readonly provider: AiProvider, private readonly runtime: AgentFrameworkRuntime = new MicrosoftAgentFrameworkRuntime()) {}
 
   private normalizeTask(task: string) {
     return task.replace(/^(?:Day\s*\d+\s*:\s*|\d+\s*일차(?:는)?\s*[:\-]?\s*)/i, "").trim();
@@ -35,7 +37,7 @@ export class MicrosoftAgentWorkflow {
   }
 
   async createPlan(goal: Goal): Promise<PlanDay[]> {
-    const tasks = await this.provider.generatePlan(goal);
+    const tasks = await this.runtime.run("createPlan", () => this.provider.generatePlan(goal));
     const planId = createId();
     const startDate = new Date(goal.startDate ?? this.toIsoDate(new Date()));
     return tasks.map((task, index) => ({
@@ -53,7 +55,7 @@ export class MicrosoftAgentWorkflow {
   }
 
   async consult(sessionId: string, message: string, history: ConversationMessage[]): Promise<ConversationMessage> {
-    const response = await this.provider.consult(message, history.map((item) => `${item.role}: ${item.content}`));
+    const response = await this.runtime.run("consult", () => this.provider.consult(message, history.map((item) => `${item.role}: ${item.content}`)));
     const normalized = response.trim();
     const combined = normalized.toLowerCase();
     if (!normalized || prohibited.some((word) => combined.includes(word))) throw new Error("POLICY_BLOCKED");
@@ -64,7 +66,7 @@ export class MicrosoftAgentWorkflow {
   }
 
   async createFeedback(goal: Goal, diary: DiaryEntry): Promise<Feedback> {
-    const result = await this.provider.generateFeedback(goal, diary);
+    const result = await this.runtime.run("createFeedback", () => this.provider.generateFeedback(goal, diary));
     const normalized = {
       executionEstimate: Math.max(0, Math.min(100, Math.round(result.executionEstimate))),
       summary: result.summary.trim(),
@@ -76,13 +78,13 @@ export class MicrosoftAgentWorkflow {
   }
 
   async replan(goal: Goal, plans: PlanDay[], feedback: string): Promise<{ changes: Record<string, unknown>; decision: ReplanDecision }> {
-    const changes = await this.provider.replan(goal, plans, feedback);
+    const changes = await this.runtime.run("replan", () => this.provider.replan(goal, plans, feedback));
     const changedFields = Object.keys(changes);
     return { changes, decision: { decisionId: createId(), planId: plans[0]?.planId ?? "", guestSessionId: goal.guestSessionId, type: "accept", proposedChanges: changes, changedFields, createdAt: now() } };
   }
 
   async applyPlanFeedback(goal: Goal, plans: PlanDay[], feedbackMessage: string, history: string[]) {
-    const revision = await this.provider.revisePlan(goal, plans, feedbackMessage, history);
+    const revision = await this.runtime.run("applyPlanFeedback", () => this.provider.revisePlan(goal, plans, feedbackMessage, history));
     const normalizedTasks = revision.tasks.map((task) => this.normalizeTask(task));
     const combined = `${revision.assistantMessage} ${normalizedTasks.join(" ")}`.toLowerCase();
     if (!revision.assistantMessage || normalizedTasks.length !== plans.length || prohibited.some((word) => combined.includes(word))) throw new Error("POLICY_BLOCKED");
@@ -112,7 +114,7 @@ export class MicrosoftAgentWorkflow {
   async applyPlanDayFeedback(goal: Goal, plans: PlanDay[], dayIndex: number, feedbackMessage: string, history: string[]) {
     const target = plans.find((plan) => plan.dayIndex === dayIndex);
     if (!target) throw new Error("PLAN_DAY_NOT_FOUND");
-    const revision = await this.provider.revisePlanDay(goal, target, feedbackMessage, history);
+    const revision = await this.runtime.run("applyPlanDayFeedback", () => this.provider.revisePlanDay(goal, target, feedbackMessage, history));
     const revisedTask = this.normalizeTask(revision.revisedTask);
     const combined = `${revision.assistantMessage} ${revisedTask}`.toLowerCase();
     if (!revision.assistantMessage || !revisedTask || prohibited.some((word) => combined.includes(word))) throw new Error("POLICY_BLOCKED");
@@ -153,7 +155,7 @@ export class MicrosoftAgentWorkflow {
     const nextPlan = sortedPlans.find((plan) => plan.dayIndex === todayPlan.dayIndex + 1);
     if (!nextPlan) throw new Error("NEXT_PLAN_NOT_FOUND");
 
-    const revision = await this.provider.adjustNextDayPlan(goal, todayPlan, nextPlan, diary);
+    const revision = await this.runtime.run("previewNextDayAdjustmentFromDiary", () => this.provider.adjustNextDayPlan(goal, todayPlan, nextPlan, diary));
     const revisedTask = this.normalizeTask(revision.revisedTask);
     const assistantMessage = revision.assistantMessage.trim();
     const combined = `${assistantMessage} ${revisedTask}`.toLowerCase();

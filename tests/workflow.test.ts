@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MicrosoftAgentWorkflow } from "../src/workflow.js";
 import type { AiProvider } from "../src/ai.js";
 import type { Goal } from "../src/domain.js";
+import type { AgentFrameworkRuntime } from "../src/agent-framework.js";
 
 const goal: Goal = {
   goalId: "goal-1",
@@ -28,6 +29,24 @@ const provider: AiProvider = {
 };
 
 describe("MicrosoftAgentWorkflow", () => {
+  it("routes provider calls through agent framework runtime", async () => {
+    const operations: string[] = [];
+    const runtime: AgentFrameworkRuntime = {
+      run: async (operation, task) => {
+        operations.push(operation);
+        return task();
+      },
+      isConnected: async () => true,
+    };
+
+    const workflow = new MicrosoftAgentWorkflow(provider, runtime);
+    await workflow.createPlan(goal);
+    await workflow.consult("session-1", "테스트", []);
+
+    expect(operations).toContain("createPlan");
+    expect(operations).toContain("consult");
+  });
+
   it("groups generated days under one plan", async () => {
     const plans = await new MicrosoftAgentWorkflow(provider).createPlan(goal);
     expect(plans).toHaveLength(2);

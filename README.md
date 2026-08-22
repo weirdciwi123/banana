@@ -141,6 +141,19 @@ Docker 기반으로 Azure에 배포한다.
 - 로그/모니터링 지표 검증
 - 장애 시 데이터 보존 및 재시도 UX 검증
 
+빠른 실행 명령:
+
+```bash
+# 단위 테스트
+npm run test:unit
+
+# 배포 환경 E2E 스모크 테스트
+npm run test:e2e:deploy
+
+# 단위 + 배포 E2E 연속 실행
+npm run test:all
+```
+
 ## 심사 기준
 
 전체 배점은 100%입니다.

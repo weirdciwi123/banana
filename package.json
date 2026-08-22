@@ -7,7 +7,10 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:e2e:deploy": "bash tests/e2e.deploy.smoke.sh",
+    "test:all": "npm run test:unit && npm run test:e2e:deploy"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
